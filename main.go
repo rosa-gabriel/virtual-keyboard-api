@@ -15,8 +15,8 @@ type StartResponse struct {
 }
 
 type CheckRequest struct {
-	Hash    string       `json:"hash"`
-	Options [5][2]uint32 `json:"options"`
+	Hash    *string       `json:"hash"`
+	Options *[5][2]uint32 `json:"options"`
 }
 
 type UserReponse struct {
@@ -89,17 +89,18 @@ func CheckLogin(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if body.Hash == "" {
+	if body.Hash == nil || body.Options == nil {
         w.WriteHeader(400)
 		json.NewEncoder(w).Encode(ErrorResponse{
-			Message: "Missing hash in body",
+			Message: "Missing required body parts",
 		})
 		return
 	}
 
-	hash_uuid, err := uuid.FromBytes([]byte(body.Hash))
+	hash_uuid, err := uuid.Parse(*body.Hash)
 
 	if err != nil {
+        slog.Info("error", "error", err)
         w.WriteHeader(400)
 		json.NewEncoder(w).Encode(ErrorResponse{
 			Message: "Hash is not valid UUID",
@@ -152,6 +153,7 @@ func CheckLogin(w http.ResponseWriter, r *http.Request) {
 			}
 
 			json.NewEncoder(w).Encode(response)
+            return
 		}
 	}
 
