@@ -11,12 +11,12 @@ import (
 
 type StartResponse struct {
 	Hash    uuid.UUID    `json:"hash"`
-	Options [5][2]uint32 `json:"options"`
+    Combinations [5][2]uint32 `json:"combinations"`
 }
 
 type CheckRequest struct {
 	Hash    *string       `json:"hash"`
-	Options *[5][2]uint32 `json:"options"`
+	Combinations *[5][2]uint32 `json:"combinations"`
 }
 
 type UserReponse struct {
@@ -65,7 +65,7 @@ func StartLogin(w http.ResponseWriter, r *http.Request) {
 
 	response := StartResponse{
 		Hash:    hash,
-		Options: options,
+		Combinations: options,
 	}
 
 	w.Header().Set("Content-Type", "application/json")
@@ -89,7 +89,7 @@ func CheckLogin(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if body.Hash == nil || body.Options == nil {
+	if body.Hash == nil || body.Combinations == nil {
         w.WriteHeader(400)
 		json.NewEncoder(w).Encode(ErrorResponse{
 			Message: "Missing required body parts",
@@ -120,7 +120,7 @@ func CheckLogin(w http.ResponseWriter, r *http.Request) {
 
 	delete(login_attempts, hash_uuid)
 
-	for _, request_combination := range body.Options {
+	for _, request_combination := range body.Combinations {
 		valid := false
 		for _, possible := range session {
 			if request_combination[0] == possible[0] && request_combination[1] == possible[1] {
@@ -141,7 +141,7 @@ func CheckLogin(w http.ResponseWriter, r *http.Request) {
 	for _, user := range users {
 		valid := true
 		for password_digit_i, password_digit := range user.Password {
-			if body.Options[password_digit_i][0] != password_digit && body.Options[password_digit_i][1] != password_digit {
+			if body.Combinations[password_digit_i][0] != password_digit && body.Combinations[password_digit_i][1] != password_digit {
 				valid = false
 				break
 			}
