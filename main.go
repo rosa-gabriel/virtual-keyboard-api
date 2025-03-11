@@ -9,6 +9,7 @@ import (
 	"github.com/go-fuego/fuego"
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgxpool"
+	"golang.org/x/crypto/bcrypt"
 )
 
 type StartResponse struct {
@@ -18,7 +19,7 @@ type StartResponse struct {
 
 type CheckRequest struct {
 	Hash         *string      `json:"hash"`
-	Combinations *[][]int32 `json:"combinations"`
+	Combinations *[4][2]int32 `json:"combinations"`
 }
 
 type UserReponse struct {
@@ -129,9 +130,31 @@ create table combinations (
 
 create table users (
     username varchar(50) primary key,
-    password int[]
+    email varchar(50),
+    password varchar(100) unique
 );
+
+INSERT INTO public.combinations ("options") VALUES
+	 ('{{1,2},{3,4},{5,7},{6,8},{9,10}}'),
+	 ('{{5,2},{3,4},{1,6},{7,8},{9,10}}'),
+	 ('{{1,2},{3,4},{5,9},{7,8},{6,10}}'),
+	 ('{{1,2},{3,4},{5,6},{7,8},{9,10}}'),
+	 ('{{1,2},{3,5},{4,6},{7,8},{9,10}}');
+
+INSERT INTO public.users (username,email,"password") VALUES
+	 ('Among Us','among@us.br','$2a$14$Mzu9bIkdj.NSA6vNjLHl.O4xo5.AagKMnQvgwbhhnSLQ48ji/Dfry'),
+	 ('Paulo Sérgio','paulo@kuba.ch','$2a$14$KMqaccLtCYFncwTgMkQ6FueEtoufOkUPmPNQ03UnC2G0fcejzVN2u');
 `
+
+func HashPassword(password string) (string, error) {
+    bytes, err := bcrypt.GenerateFromPassword([]byte(password), 14)
+    return string(bytes), err
+}
+
+func VerifyPassword(password, hash string) bool {
+    err := bcrypt.CompareHashAndPassword([]byte(hash), []byte(password))
+    return err == nil
+}
 
 func MigrateDB(db *pgxpool.Conn) error {
 	_, err := db.Exec(context.Background(), schema)
