@@ -3,6 +3,7 @@ package main
 import (
 	"advanced-algorithms/virtual-keyboard/postgresql"
 	"context"
+	"fmt"
 	"log/slog"
 	"strings"
 
@@ -13,7 +14,7 @@ import (
 )
 
 type StartResponse struct {
-	Hash         uuid.UUID   `json:"hash"`
+	Hash         uuid.UUID `json:"hash"`
 	Combinations [][]int32 `json:"combinations"`
 }
 
@@ -24,29 +25,19 @@ type CheckRequest struct {
 
 type UserReponse struct {
 	Username string `json:"username"`
+	Email    string `json:"email"`
 }
 
 type ErrorResponse struct {
 	Message string `json:"message"`
 }
 
-type User struct {
-	Username string   `json:"username"`
-	Password []int32 `json:",omit"`
-}
-
 var possible_combinations = [][][]int32{}
+var switch_combinations [][]int32
 
 var curr_index = 0
 
 var login_attempts = make(map[uuid.UUID]*[][]int32)
-
-var users = []User{
-	{
-		Username: "Among",
-		Password: []int32{1, 2, 3, 4, 5},
-	},
-}
 
 func StartLogin(c fuego.ContextNoBody) (*StartResponse, error) {
 	options := possible_combinations[curr_index]
@@ -66,6 +57,25 @@ func StartLogin(c fuego.ContextNoBody) (*StartResponse, error) {
 	}
 
 	return &response, nil
+}
+
+func GenerateSwitchCombinations(n int) [][]int32 {
+	totalCombinations := 1 << n
+
+	result := make([][]int32, totalCombinations)
+
+	for i := 0; i < totalCombinations; i++ {
+		combination := make([]int32, n)
+		for j := 0; j < n; j++ {
+			if i&(1<<j) != 0 {
+				combination[j] = 1
+			} else {
+				combination[j] = 0
+			}
+		}
+		result[i] = combination
+	}
+	return result
 }
 
 func CheckLogin(c fuego.ContextWithBody[CheckRequest]) (*UserReponse, error) {
@@ -102,21 +112,35 @@ func CheckLogin(c fuego.ContextWithBody[CheckRequest]) (*UserReponse, error) {
 		}
 	}
 
-	for _, user := range users {
-		valid := true
-		for password_digit_i, password_digit := range user.Password {
-			if (*body.Combinations)[password_digit_i][0] != password_digit && (*body.Combinations)[password_digit_i][1] != password_digit {
-				valid = false
-				break
-			}
-		}
+	conn, err := postgresql.GetConection()
 
-		if valid {
-			response := UserReponse{
-				Username: user.Username,
-			}
+	if err != nil {
+		panic(err)
+	}
 
-			return &response, nil
+	queries := postgresql.New(conn)
+
+	users, err := queries.GetUsers(context.Background())
+
+	if err != nil {
+		slog.Error("Failed to get users")
+		panic(err)
+	}
+
+	user_combinations := *body.Combinations
+
+	for _, s_c := range switch_combinations {
+		password := fmt.Sprintf("%d%d%d%d", user_combinations[0][s_c[0]], user_combinations[1][s_c[1]], user_combinations[2][s_c[2]], user_combinations[3][s_c[3]])
+
+		for _, user := range users {
+			if VerifyPassword(password, user.Password.String) {
+				response := UserReponse{
+					Username: user.Username,
+					Email:    user.Email.String,
+				}
+
+				return &response, nil
+			}
 		}
 	}
 
@@ -147,13 +171,13 @@ INSERT INTO public.users (username,email,"password") VALUES
 `
 
 func HashPassword(password string) (string, error) {
-    bytes, err := bcrypt.GenerateFromPassword([]byte(password), 14)
-    return string(bytes), err
+	bytes, err := bcrypt.GenerateFromPassword([]byte(password), 2)
+	return string(bytes), err
 }
 
 func VerifyPassword(password, hash string) bool {
-    err := bcrypt.CompareHashAndPassword([]byte(hash), []byte(password))
-    return err == nil
+	err := bcrypt.CompareHashAndPassword([]byte(hash), []byte(password))
+	return err == nil
 }
 
 func MigrateDB(db *pgxpool.Conn) error {
@@ -203,6 +227,8 @@ func main() {
 	}
 
 	possible_combinations = combinations
+
+	switch_combinations = GenerateSwitchCombinations(4)
 
 	err = s.Run()
 

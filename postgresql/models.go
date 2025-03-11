@@ -4,11 +4,16 @@
 
 package postgresql
 
+import (
+	"github.com/jackc/pgx/v5/pgtype"
+)
+
 type Combination struct {
 	Options [][]int32
 }
 
 type User struct {
 	Username string
-	Password []int32
+	Email    pgtype.Text
+	Password pgtype.Text
 }
