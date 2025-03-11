@@ -1,5 +1,8 @@
-CREATE TABLE authors (
-  id   BIGSERIAL PRIMARY KEY,
-  name text      NOT NULL,
-  bio  text
+create table combinations (
+    options int[][]
+);
+
+create table users (
+    username varchar(50) primary key,
+    password int[]
 );
