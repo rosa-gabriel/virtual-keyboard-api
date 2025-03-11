@@ -1,13 +1,14 @@
 package main
 
 import (
+	"advanced-algorithms/virtual-keyboard/postgresql"
 	"context"
 	"log/slog"
 	"strings"
 
 	"github.com/go-fuego/fuego"
 	"github.com/google/uuid"
-	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgxpool"
 )
 
 type StartResponse struct {
@@ -69,7 +70,7 @@ func StartLogin(c fuego.ContextNoBody) (*StartResponse, error) {
 		Combinations: options,
 	}
 
-    return &response, nil
+	return &response, nil
 }
 
 func CheckLogin(c fuego.ContextWithBody[CheckRequest]) (*UserReponse, error) {
@@ -138,7 +139,7 @@ create table users (
 );
 `
 
-func MigrateDB(db *pgx.Conn) error {
+func MigrateDB(db *pgxpool.Conn) error {
 	_, err := db.Exec(context.Background(), schema)
 	slog.Info("Migrating database...")
 
@@ -166,36 +167,18 @@ func main() {
 		slog.Error("Failed to start server", "error", err)
 	}
 
-	// conn, err := pgx.Connect(context.Background(), "user=admin password=password host=localhost port=5432 dbname=virtualkeyboard")
+	postgresql.Connect()
+	defer postgresql.Close()
 
-	// if err != nil {
-	// 	slog.Error("Unable to connect to database", "error", err)
-	// }
+	conn, err := postgresql.GetConection()
 
-	// defer conn.Close(context.Background())
+	if err != nil {
+		panic(err)
+	}
 
-	// err = MigrateDB(conn)
+	err = MigrateDB(conn)
 
-	// if err != nil {
-	// 	return
-	// }
-
-	// rows, err := conn.Query(context.Background(), "SELECT * FROM combinations")
-
-	// defer rows.Close()
-
-	// for rows.Next() {
-	// 	var r [5][2]uint32
-	// 	err := rows.Scan(&r)
-
-	// 	if err != nil {
-	// 		slog.Error("flkdsjlfds", "error", err)
-	// 	}
-
-	// 	possible_combinations = append(possible_combinations, r)
-	// }
-
-	// if err := rows.Err(); err != nil {
-	// 	slog.Error("dslfjsdlk", "error", err)
-	// }
+	if err != nil {
+		panic(err)
+	}
 }
