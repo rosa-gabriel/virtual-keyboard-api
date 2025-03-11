@@ -1,21 +1,22 @@
 package main
 
 import (
-	"encoding/json"
-	"io"
+	"context"
 	"log/slog"
-	"net/http"
+	"strings"
 
+	"github.com/go-fuego/fuego"
 	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5"
 )
 
 type StartResponse struct {
-	Hash    uuid.UUID    `json:"hash"`
-    Combinations [5][2]uint32 `json:"combinations"`
+	Hash         uuid.UUID    `json:"hash"`
+	Combinations [5][2]uint32 `json:"combinations"`
 }
 
 type CheckRequest struct {
-	Hash    *string       `json:"hash"`
+	Hash         *string       `json:"hash"`
 	Combinations *[5][2]uint32 `json:"combinations"`
 }
 
@@ -51,7 +52,7 @@ var users = []User{
 	},
 }
 
-func StartLogin(w http.ResponseWriter, r *http.Request) {
+func StartLogin(c fuego.ContextNoBody) (*StartResponse, error) {
 	options := possible_combinations[curr_index]
 
 	if curr_index < len(possible_combinations)-1 {
@@ -64,58 +65,30 @@ func StartLogin(w http.ResponseWriter, r *http.Request) {
 	login_attempts[hash] = &options
 
 	response := StartResponse{
-		Hash:    hash,
+		Hash:         hash,
 		Combinations: options,
 	}
 
-	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(response)
+    return &response, nil
 }
 
-func CheckLogin(w http.ResponseWriter, r *http.Request) {
-	body_bytes, err := io.ReadAll(r.Body)
-
-	var body CheckRequest
-
-	err = json.Unmarshal(body_bytes, &body)
-
-	w.Header().Set("Content-Type", "application/json")
+func CheckLogin(c fuego.ContextWithBody[CheckRequest]) (*UserReponse, error) {
+	body, err := c.Body()
 
 	if err != nil {
-        w.WriteHeader(400)
-		json.NewEncoder(w).Encode(ErrorResponse{
-			Message: "Body is not in json format",
-		})
-		return
-	}
-
-	if body.Hash == nil || body.Combinations == nil {
-        w.WriteHeader(400)
-		json.NewEncoder(w).Encode(ErrorResponse{
-			Message: "Missing required body parts",
-		})
-		return
+		return nil, fuego.BadRequestError{}
 	}
 
 	hash_uuid, err := uuid.Parse(*body.Hash)
 
 	if err != nil {
-        slog.Info("error", "error", err)
-        w.WriteHeader(400)
-		json.NewEncoder(w).Encode(ErrorResponse{
-			Message: "Hash is not valid UUID",
-		})
-		return
+		return nil, fuego.BadRequestError{Detail: "Hash is not valid UUID"}
 	}
 
 	session := login_attempts[hash_uuid]
 
 	if session == nil {
-        w.WriteHeader(404)
-		json.NewEncoder(w).Encode(ErrorResponse{
-			Message: "Session with this hash does not exist",
-		})
-		return
+		return nil, fuego.NotFoundError{Detail: "Session with this hash does not exist"}
 	}
 
 	delete(login_attempts, hash_uuid)
@@ -128,13 +101,8 @@ func CheckLogin(w http.ResponseWriter, r *http.Request) {
 				break
 			}
 		}
-
 		if !valid {
-			w.WriteHeader(400)
-			json.NewEncoder(w).Encode(ErrorResponse{
-				Message: "Hash did not match this combination",
-			})
-			return
+			return nil, fuego.BadRequestError{Detail: "Hash did not match this combination"}
 		}
 	}
 
@@ -152,24 +120,82 @@ func CheckLogin(w http.ResponseWriter, r *http.Request) {
 				Username: user.Username,
 			}
 
-			json.NewEncoder(w).Encode(response)
-            return
+			return &response, nil
 		}
 	}
 
-	w.WriteHeader(401)
-	json.NewEncoder(w).Encode(ErrorResponse{
-		Message: "Wrong password",
-	})
-	return
+	return nil, fuego.UnauthorizedError{Detail: "Wrong password"}
 }
-func main() {
-	http.HandleFunc("OPTIONS /login", StartLogin)
-	http.HandleFunc("POST /login", CheckLogin)
 
-	err := http.ListenAndServe(":8080", nil)
+var schema = `
+create table combinations (
+    options int[][]
+);
+
+create table users (
+    username varchar(50) primary key,
+    password int[]
+);
+`
+
+func MigrateDB(db *pgx.Conn) error {
+	_, err := db.Exec(context.Background(), schema)
+	slog.Info("Migrating database...")
+
+	if err != nil && !strings.Contains(err.Error(), "42P07") {
+		slog.Error("Failed to migrate database", "error", err)
+		return err
+	}
+
+	slog.Info("Database migrated")
+
+	return nil
+}
+
+func main() {
+	s := fuego.NewServer(
+		fuego.WithAddr("localhost:8080"),
+	)
+
+	fuego.Options(s, "/login", StartLogin)
+	fuego.Post(s, "/login", CheckLogin)
+
+	err := s.Run()
 
 	if err != nil {
 		slog.Error("Failed to start server", "error", err)
 	}
+
+	// conn, err := pgx.Connect(context.Background(), "user=admin password=password host=localhost port=5432 dbname=virtualkeyboard")
+
+	// if err != nil {
+	// 	slog.Error("Unable to connect to database", "error", err)
+	// }
+
+	// defer conn.Close(context.Background())
+
+	// err = MigrateDB(conn)
+
+	// if err != nil {
+	// 	return
+	// }
+
+	// rows, err := conn.Query(context.Background(), "SELECT * FROM combinations")
+
+	// defer rows.Close()
+
+	// for rows.Next() {
+	// 	var r [5][2]uint32
+	// 	err := rows.Scan(&r)
+
+	// 	if err != nil {
+	// 		slog.Error("flkdsjlfds", "error", err)
+	// 	}
+
+	// 	possible_combinations = append(possible_combinations, r)
+	// }
+
+	// if err := rows.Err(); err != nil {
+	// 	slog.Error("dslfjsdlk", "error", err)
+	// }
 }
